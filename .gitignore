@@ -1,4 +1,6 @@
+api.spec
+.venv/
 node_modules/
-.venv
-venv
-*.pyc
+build/
+dist/
+pycalcdist/

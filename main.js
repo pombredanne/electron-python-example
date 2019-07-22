@@ -1,62 +1,96 @@
-const electron = require('electron');
-const app = electron.app;  // Module to control application life.
-const BrowserWindow = electron.BrowserWindow;  // Module to create native browser window.
-
-// Report crashes to our server.
-electron.crashReporter.start();
+const electron = require('electron')
+const app = electron.app
+const BrowserWindow = electron.BrowserWindow
+const path = require('path')
 
 
-// Keep a global reference of the window object, if you don't, the window will
-// be closed automatically when the javascript object is GCed.
-var mainWindow = null;
+/*************************************************************
+ * py process
+ *************************************************************/
 
-// Quit when all windows are closed.
-app.on('window-all-closed', function() {
-  //if (process.platform != 'darwin') {
-    app.quit();
-  //}
-});
+const PY_DIST_FOLDER = 'pycalcdist'
+const PY_FOLDER = 'pycalc'
+const PY_MODULE = 'api' // without .py suffix
 
-// This method will be called when Electron has done everything
-// initialization and ready for creating browser windows.
-app.on('ready', function() {
-  // call python?
-  var subpy = require('child_process').spawn('python', ['./hello.py']);
+let pyProc = null
+let pyPort = null
 
-  var rq = require('request-promise');
-  var mainAddr = 'http://localhost:5000';
+const guessPackaged = () => {
+  const fullPath = path.join(__dirname, PY_DIST_FOLDER)
+  return require('fs').existsSync(fullPath)
+}
 
-  var openWindow = function(){
-    // Create the browser window.
-    mainWindow = new BrowserWindow({width: 800, height: 600});
-    // and load the index.html of the app.
-    // mainWindow.loadURL('file://' + __dirname + '/index.html');
-    mainWindow.loadURL('http://localhost:5000');
-    // Open the devtools.
-    mainWindow.webContents.openDevTools();
-    // Emitted when the window is closed.
-    mainWindow.on('closed', function() {
-      // Dereference the window object, usually you would store windows
-      // in an array if your app supports multi windows, this is the time
-      // when you should delete the corresponding element.
-      mainWindow = null;
-      // kill python
-      subpy.kill('SIGINT');
-    });
-  };
+const getScriptPath = () => {
+  if (!guessPackaged()) {
+    return path.join(__dirname, PY_FOLDER, PY_MODULE + '.py')
+  }
+  if (process.platform === 'win32') {
+    return path.join(__dirname, PY_DIST_FOLDER, PY_MODULE, PY_MODULE + '.exe')
+  }
+  return path.join(__dirname, PY_DIST_FOLDER, PY_MODULE, PY_MODULE)
+}
 
-  var startUp = function(){
-    rq(mainAddr)
-      .then(function(htmlString){
-        console.log('server started!');
-        openWindow();
-      })
-      .catch(function(err){
-        //console.log('waiting for the server start...');
-        startUp();
-      });
-  };
+const selectPort = () => {
+  pyPort = 4242
+  return pyPort
+}
 
-  // fire!
-  startUp();
-});
+const createPyProc = () => {
+  let script = getScriptPath()
+  let port = '' + selectPort()
+
+  if (guessPackaged()) {
+    pyProc = require('child_process').execFile(script, [port])
+  } else {
+    pyProc = require('child_process').spawn('python', [script, port])
+  }
+ 
+  if (pyProc != null) {
+    //console.log(pyProc)
+    console.log('child process success on port ' + port)
+  }
+}
+
+const exitPyProc = () => {
+  pyProc.kill()
+  pyProc = null
+  pyPort = null
+}
+
+app.on('ready', createPyProc)
+app.on('will-quit', exitPyProc)
+
+
+/*************************************************************
+ * window management
+ *************************************************************/
+
+let mainWindow = null
+
+const createWindow = () => {
+  mainWindow = new BrowserWindow({width: 800, height: 600})
+  mainWindow.loadURL(require('url').format({
+    pathname: path.join(__dirname, 'index.html'),
+    protocol: 'file:',
+    slashes: true
+  }))
+  mainWindow.webContents.openDevTools()
+
+  mainWindow.on('closed', () => {
+    mainWindow = null
+  })
+}
+
+app.on('ready', createWindow)
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit()
+  }
+})
+
+app.on('activate', () => {
+  if (mainWindow === null) {
+    createWindow()
+  }
+})
